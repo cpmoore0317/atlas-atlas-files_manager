@@ -1,31 +1,18 @@
-// utils/redis.js
+const redis = require('redis');
+const { promisify } = require('util');
 
-const { createClient } = require('redis');
-
-const client = createClient();
+const client = redis.createClient();
 
 client.on('error', (err) => {
-  console.log('Redis Client Error', err);
+  console.error('Redis error: ', err);
 });
 
-async function connectRedis() {
-  if (!client.isOpen) {
-    await client.connect();
-  }
-}
-
-async function getValue(key) {
-  await connectRedis();
-  return await client.get(key);
-}
-
-async function isAlive() {
-  await connectRedis();
-  return client.isOpen;
-}
+const getAsync = promisify(client.get).bind(client);
+const setAsync = promisify(client.set).bind(client);
+const delAsync = promisify(client.del).bind(client);
 
 module.exports = {
-  getValue,
-  isAlive,
-  client,
+  get: getAsync,
+  set: setAsync,
+  del: delAsync,
 };
