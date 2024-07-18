@@ -1,3 +1,5 @@
+// controllers/FilesController.js
+
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
@@ -6,6 +8,10 @@ const mongoose = require('mongoose');
 
 const FilesController = {
   async postUpload(req, res) {
+    // ... (existing code for postUpload)
+  },
+
+  async getShow(req, res) {
     const token = req.headers['x-token'];
     if (!token) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -16,52 +22,41 @@ const FilesController = {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { name, type, parentId = 0, isPublic = false, data } = req.body;
+    const fileId = req.params.id;
+    const file = await mongoose.connection.db.collection('files').findOne({
+      _id: mongoose.Types.ObjectId(fileId),
+      userId: mongoose.Types.ObjectId(userId)
+    });
 
-    if (!name) {
-      return res.status(400).json({ error: 'Missing name' });
+    if (!file) {
+      return res.status(404).json({ error: 'Not found' });
     }
 
-    if (!['folder', 'file', 'image'].includes(type)) {
-      return res.status(400).json({ error: 'Missing type' });
+    return res.status(200).json(file);
+  },
+
+  async getIndex(req, res) {
+    const token = req.headers['x-token'];
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (type !== 'folder' && !data) {
-      return res.status(400).json({ error: 'Missing data' });
+    const userId = await redisClient.get(`auth_${token}`);
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (parentId !== 0) {
-      const parentFile = await mongoose.connection.db.collection('files').findOne({ _id: mongoose.Types.ObjectId(parentId) });
-      if (!parentFile) {
-        return res.status(400).json({ error: 'Parent not found' });
-      }
-      if (parentFile.type !== 'folder') {
-        return res.status(400).json({ error: 'Parent is not a folder' });
-      }
-    }
+    const parentId = req.query.parentId || '0';
+    const page = parseInt(req.query.page, 10) || 0;
+    const pageSize = 20;
 
-    const fileDocument = {
-      userId: mongoose.Types.ObjectId(userId),
-      name,
-      type,
-      isPublic,
-      parentId: parentId === 0 ? 0 : mongoose.Types.ObjectId(parentId)
-    };
+    const files = await mongoose.connection.db.collection('files').aggregate([
+      { $match: { userId: mongoose.Types.ObjectId(userId), parentId: parentId === '0' ? 0 : mongoose.Types.ObjectId(parentId) } },
+      { $skip: page * pageSize },
+      { $limit: pageSize }
+    ]).toArray();
 
-    if (type === 'folder') {
-      const newFile = await mongoose.connection.db.collection('files').insertOne(fileDocument);
-      return res.status(201).json(newFile.ops[0]);
-    } else {
-      const FOLDER_PATH = process.env.FOLDER_PATH || '/tmp/files_manager';
-      const localPath = path.join(FOLDER_PATH, uuidv4());
-
-      fs.mkdirSync(FOLDER_PATH, { recursive: true });
-      fs.writeFileSync(localPath, Buffer.from(data, 'base64'));
-
-      fileDocument.localPath = localPath;
-      const newFile = await mongoose.connection.db.collection('files').insertOne(fileDocument);
-      return res.status(201).json(newFile.ops[0]);
-    }
+    return res.status(200).json(files);
   }
 };
 
